@@ -1,0 +1,57 @@
+name: 'rinohtype tox'
+description: 'Run a rinohtype tox environment'
+inputs:
+  python-version:
+    description: 'Python version'
+    required: true
+runs:
+  using: "composite"
+  steps:
+  - name: Set up Python ${{ inputs.python-version }}
+    uses: actions/setup-python@v2
+    with:
+      python-version: ${{ inputs.python-version }}
+  - name: Install Poetry
+    uses: abatilo/actions-poetry@v2.0.0
+    with:
+      poetry-version: 1.0.10
+  - name: Get Poetry/pip cache dirs
+    id: cache-dirs
+    run: |
+      echo "::set-output name=poetry::$(poetry config cache-dir)"
+      echo "::set-output name=pip::$(pip cache dir)"
+  - name: Cache Poetry/pip downloads
+    uses: actions/cache@v2
+    with:
+      path: |
+        ${{ steps.cache-dirs.outputs.poetry }}
+        ${{ steps.cache-dirs.outputs.pip }}
+      key: ${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+  - name: Linux/macOS-specific commands
+      if: !startsWith(runner.os, 'Windows')
+      run: |
+        echo '::set-env name=ACTIVATE_VENV::source $(poetry env info -p)/bin/activate'
+        echo '::set-env name=WHEEL_PATH::./dist/rinohtype-*.whl'
+  - name: Windows-specific commands
+      if: startsWith(runner.os, 'Windows')
+      run: |
+        echo '::set-env name=ACTIVATE_VENV::. "$(poetry env info -p)\Scripts\Activate.ps1"'
+        echo '::set-env name=WHEEL_PATH::(Get-Item ./dist/rinohtype-*.whl)'
+  - name: Install development dependencies (Poetry)
+    run: |
+      poetry install --no-root
+  - name: Install tox-gh-actions
+    if: env.TOXENV == ''    # tox-gh-actions breaks regular usage
+    run: |
+      ${{ env.ACTIVATE_VENV }}
+      pip install tox-gh-actions
+  - name: Create wheel
+    if: env.DIST == 'wheel'
+    run: |
+      ${{ env.ACTIVATE_VENV }}
+      python setup.py bdist_wheel
+      echo '::set-env name=INSTALLPKG::--installpkg ${{ env.WHEEL_PATH }}'
+  - name: Test with tox
+    run: |
+      ${{ env.ACTIVATE_VENV }}
+      tox -v ${{ env.INSTALLPKG }} -- -s
